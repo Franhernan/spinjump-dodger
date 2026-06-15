@@ -4,7 +4,7 @@ import sys
 
 import pygame
 
-from difficulty import DIFFICULTIES, cycle_difficulty
+from difficulty import DIFFICULTIES, cycle_difficulty, obstacle_speed_for_level
 from powerups import POWERUP_TYPES, PowerUp, random_powerup_kind
 from stats import get_high_score, load_stats, record_game_end
 from sounds import SoundManager
@@ -168,7 +168,7 @@ class FastObstacle(Obstacle):
     points = 15
 
     def __init__(self, angle, speed):
-        super().__init__(angle, speed * 1.45)
+        super().__init__(angle, speed * 1.22)
 
 
 class ZigzagObstacle(Obstacle):
@@ -199,7 +199,7 @@ class ZigzagObstacle(Obstacle):
 
 def create_obstacle(level, speed_mod):
     angle = random.uniform(0, 360)
-    speed = (2.5 + level * 0.45) * speed_mod
+    speed = obstacle_speed_for_level(level, speed_mod)
 
     roll = random.random()
     if level >= 3 and roll < 0.2:
@@ -313,7 +313,7 @@ class Game:
 
     def spawn_demo_obstacle(self):
         angle = random.uniform(0, 360)
-        speed = random.uniform(2.0, 3.5)
+        speed = random.uniform(1.0, 1.8)
         choices = [Obstacle, FastObstacle, ZigzagObstacle]
         self.demo_obstacles.append(random.choice(choices)(angle, speed))
 
@@ -504,7 +504,7 @@ class Game:
             self.sounds.play(self.sounds.land)
 
         self.spawn_timer += 1
-        spawn_interval = max(20, int((55 - self.level * 4) * self.difficulty["spawn_interval_mod"]))
+        spawn_interval = max(40, int((80 - self.level * 2) * self.difficulty["spawn_interval_mod"]))
         if self.spawn_timer >= spawn_interval:
             self.spawn_obstacle()
             self.spawn_timer = 0

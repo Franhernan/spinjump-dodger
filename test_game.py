@@ -4,7 +4,7 @@ import sys
 
 import pygame
 
-from difficulty import DIFFICULTIES
+from difficulty import DIFFICULTIES, obstacle_speed_for_level
 from main import Game, create_obstacle, combo_multiplier
 from powerups import PowerUp, random_powerup_kind
 from stats import load_stats, record_game_end
@@ -25,6 +25,11 @@ def test_obstacles_and_combos():
     assert obstacle.points >= 10
     assert combo_multiplier(0) == 1
     assert combo_multiplier(6) == 3
+    level_one_speed = obstacle_speed_for_level(1, 1.0)
+    level_ten_speed = obstacle_speed_for_level(10, 1.0)
+    assert level_one_speed < level_ten_speed
+    assert level_ten_speed <= 3.8
+    assert level_one_speed < 2.0
     print("PASS: Obstacles and combo math")
 
 
