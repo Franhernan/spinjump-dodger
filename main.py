@@ -35,7 +35,7 @@ OBSTACLE_DESPAWN_RADIUS = 40
 
 GRAVITY = 0.48
 JUMP_VELOCITY = 9
-MOVE_SPEED = 4.5
+MOVE_SPEED = 6.5
 MAX_FALL_RADIUS = 220
 COMBO_WINDOW = 120
 MAX_COMBO_MULTIPLIER = 5
@@ -439,16 +439,18 @@ class Game:
                 elif self.started and not self.game_over:
                     if event.key in (pygame.K_p, pygame.K_ESCAPE):
                         self.toggle_pause()
-                    elif not self.paused:
-                        if event.key in (pygame.K_SPACE, pygame.K_UP):
-                            if self.player.jump():
-                                self.sounds.play(self.sounds.jump)
-                        elif event.key == pygame.K_LEFT:
-                            self.player.move(-1)
-                        elif event.key == pygame.K_RIGHT:
-                            self.player.move(1)
+                    elif not self.paused and event.key in (pygame.K_SPACE, pygame.K_UP):
+                        if self.player.jump():
+                            self.sounds.play(self.sounds.jump)
                 elif self.game_over and event.key == pygame.K_r:
                     self.reset()
+
+        if self.started and not self.game_over and not self.paused:
+            keys = pygame.key.get_pressed()
+            if keys[pygame.K_LEFT]:
+                self.player.move(-1)
+            if keys[pygame.K_RIGHT]:
+                self.player.move(1)
 
     def update_effect_timers(self):
         if self.slow_mo_timer > 0:
@@ -479,7 +481,7 @@ class Game:
     def update_title_demo(self):
         self.platform_angle = (self.platform_angle + 1.2) % 360
         self.demo_spawn_timer += 1
-        if self.demo_spawn_timer >= 45:
+        if self.demo_spawn_timer >= 70:
             self.spawn_demo_obstacle()
             self.demo_spawn_timer = 0
 
@@ -516,7 +518,7 @@ class Game:
             self.sounds.play(self.sounds.land)
 
         self.spawn_timer += 1
-        spawn_interval = max(40, int((80 - self.level * 2) * self.difficulty["spawn_interval_mod"]))
+        spawn_interval = max(55, int((120 - self.level * 1.5) * self.difficulty["spawn_interval_mod"]))
         if self.spawn_timer >= spawn_interval:
             self.spawn_obstacle()
             self.spawn_timer = 0

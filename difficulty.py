@@ -6,7 +6,7 @@ DIFFICULTIES = {
     "easy": {
         "name": "Easy",
         "rotation_speed": 1.1,
-        "spawn_interval_mod": 1.4,
+        "spawn_interval_mod": 1.85,
         "obstacle_speed_mod": 0.72,
         "level_speed_gain": 0.1,
         "standard_obstacles_only": True,
@@ -15,7 +15,7 @@ DIFFICULTIES = {
     "normal": {
         "name": "Normal",
         "rotation_speed": 1.4,
-        "spawn_interval_mod": 1.15,
+        "spawn_interval_mod": 1.35,
         "obstacle_speed_mod": 0.88,
         "level_speed_gain": 0.14,
         "standard_obstacles_only": False,
@@ -24,7 +24,7 @@ DIFFICULTIES = {
     "hard": {
         "name": "Hard",
         "rotation_speed": 1.8,
-        "spawn_interval_mod": 0.9,
+        "spawn_interval_mod": 1.0,
         "obstacle_speed_mod": 1.05,
         "level_speed_gain": 0.18,
         "standard_obstacles_only": False,
