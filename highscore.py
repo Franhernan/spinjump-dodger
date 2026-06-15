@@ -1,21 +1,12 @@
-import json
-from pathlib import Path
-
-HIGHSCORE_FILE = Path(__file__).parent / "highscore.json"
+from stats import get_high_score, load_stats, save_stats
 
 
 def load_high_score():
-    if not HIGHSCORE_FILE.exists():
-        return 0
-
-    try:
-        with HIGHSCORE_FILE.open("r", encoding="utf-8") as file:
-            data = json.load(file)
-        return int(data.get("high_score", 0))
-    except (json.JSONDecodeError, OSError, TypeError, ValueError):
-        return 0
+    stats = load_stats()
+    return max(get_high_score(stats, key) for key in ("easy", "normal", "hard"))
 
 
 def save_high_score(score):
-    with HIGHSCORE_FILE.open("w", encoding="utf-8") as file:
-        json.dump({"high_score": int(score)}, file)
+    stats = load_stats()
+    stats["high_scores"]["normal"] = max(get_high_score(stats, "normal"), int(score))
+    save_stats(stats)

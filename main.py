@@ -4,7 +4,9 @@ import sys
 
 import pygame
 
-from highscore import load_high_score, save_high_score
+from difficulty import DIFFICULTIES, cycle_difficulty
+from powerups import POWERUP_TYPES, PowerUp, random_powerup_kind
+from stats import get_high_score, load_stats, record_game_end
 from sounds import SoundManager
 
 pygame.init()
@@ -37,6 +39,8 @@ MOVE_SPEED = 4.5
 MAX_FALL_RADIUS = 230
 COMBO_WINDOW = 120
 MAX_COMBO_MULTIPLIER = 5
+MAX_SHIELD_CHARGES = 2
+POWERUP_SPAWN_INTERVAL = 360
 
 
 class Particle:
@@ -106,8 +110,10 @@ class Player:
         y = CENTER_Y + self.radius * math.sin(radians)
         return x, y
 
-    def draw(self, surface):
+    def draw(self, surface, shield_charges=0):
         x, y = self.get_pos()
+        if shield_charges > 0:
+            pygame.draw.circle(surface, CYAN, (int(x), int(y)), PLAYER_RADIUS + 8, 2)
         pygame.draw.circle(surface, BLUE, (int(x), int(y)), PLAYER_RADIUS)
         eye_offset = 6
         pygame.draw.circle(surface, WHITE, (int(x + eye_offset), int(y - 4)), 4)
@@ -126,9 +132,11 @@ class Obstacle:
     def __init__(self, angle, speed):
         self.angle = angle
         self.radius = OBSTACLE_SPAWN_RADIUS
+        self.base_speed = speed
         self.speed = speed
 
-    def update(self):
+    def update(self, speed_multiplier=1.0):
+        self.speed = self.base_speed * speed_multiplier
         self.radius -= self.speed
 
     def effective_angle(self):
@@ -170,8 +178,8 @@ class ZigzagObstacle(Obstacle):
         self.wobble_amount = random.uniform(8.0, 15.0)
         self.time = 0.0
 
-    def update(self):
-        super().update()
+    def update(self, speed_multiplier=1.0):
+        super().update(speed_multiplier)
         self.time += 1.0
 
     def effective_angle(self):
@@ -184,9 +192,9 @@ class ZigzagObstacle(Obstacle):
         pygame.draw.circle(surface, WHITE, (int(x), int(y)), self.radius, 2)
 
 
-def create_obstacle(level):
+def create_obstacle(level, speed_mod):
     angle = random.uniform(0, 360)
-    speed = 2.5 + level * 0.45
+    speed = (2.5 + level * 0.45) * speed_mod
 
     roll = random.random()
     if level >= 3 and roll < 0.2:
@@ -242,20 +250,32 @@ class Game:
         self.font = pygame.font.SysFont(None, 36)
         self.small_font = pygame.font.SysFont(None, 28)
         self.sounds = SoundManager()
-        self.high_score = load_high_score()
+        self.stats = load_stats()
+        self.difficulty_key = "normal"
+        self.show_stats_screen = False
         self.overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
         self.reset()
+
+    @property
+    def difficulty(self):
+        return DIFFICULTIES[self.difficulty_key]
+
+    @property
+    def best_for_difficulty(self):
+        return get_high_score(self.stats, self.difficulty_key)
 
     def reset(self):
         self.player = Player()
         self.obstacles = []
         self.demo_obstacles = []
+        self.powerups = []
         self.particles = []
-        self.rotation_speed = 1.8
+        self.rotation_speed = self.difficulty["rotation_speed"]
         self.platform_angle = 0.0
         self.level = 1
         self.spawn_timer = 0
         self.demo_spawn_timer = 0
+        self.powerup_spawn_timer = 0
         self.game_over = False
         self.started = False
         self.paused = False
@@ -267,32 +287,86 @@ class Game:
         self.combo_timer = 0
         self.combo_banner_timer = 0
         self.combo_banner_text = ""
+        self.session_max_combo = 0
+        self.shield_charges = 0
+        self.slow_mo_timer = 0
+        self.score_boost_timer = 0
+        self.powerup_banner_timer = 0
+        self.powerup_banner_text = ""
+
+    def gameplay_speed_multiplier(self):
+        return 0.45 if self.slow_mo_timer > 0 else 1.0
+
+    def score_multiplier(self):
+        multiplier = combo_multiplier(self.combo_count) if self.combo_count > 0 else 1
+        if self.score_boost_timer > 0:
+            multiplier *= 2
+        return multiplier
 
     def spawn_obstacle(self):
-        self.obstacles.append(create_obstacle(self.level))
+        self.obstacles.append(create_obstacle(self.level, self.difficulty["obstacle_speed_mod"]))
 
     def spawn_demo_obstacle(self):
         angle = random.uniform(0, 360)
         speed = random.uniform(2.0, 3.5)
         choices = [Obstacle, FastObstacle, ZigzagObstacle]
-        obstacle_class = random.choice(choices)
-        self.demo_obstacles.append(obstacle_class(angle, speed))
+        self.demo_obstacles.append(random.choice(choices)(angle, speed))
+
+    def try_spawn_powerup(self):
+        if len(self.powerups) >= 1:
+            return
+
+        self.powerups.append(
+            PowerUp(
+                random_powerup_kind(),
+                random.uniform(0, 360),
+                CENTER_X,
+                CENTER_Y,
+                PLAYER_ORBIT_RADIUS,
+            )
+        )
+
+    def collect_powerup(self, powerup):
+        info = POWERUP_TYPES[powerup.kind]
+        self.powerup_banner_timer = 75
+        self.powerup_banner_text = info["label"]
+        self.sounds.play(self.sounds.powerup)
+
+        if powerup.kind == "shield":
+            self.shield_charges = min(MAX_SHIELD_CHARGES, self.shield_charges + 1)
+        elif powerup.kind == "slow":
+            self.slow_mo_timer = info["duration"]
+        elif powerup.kind == "boost":
+            self.score_boost_timer = info["duration"]
+
+        px, py = powerup.get_pos()
+        spawn_particles(self.particles, px, py, info["color"], count=14)
 
     def register_dodge(self, obstacle):
         self.combo_count += 1
         self.combo_timer = COMBO_WINDOW
-        multiplier = combo_multiplier(self.combo_count)
+        self.session_max_combo = max(self.session_max_combo, self.combo_count)
+        multiplier = self.score_multiplier()
         points = obstacle.points * multiplier
         self.player.score += points
 
         if self.combo_count % 3 == 0:
             self.combo_banner_timer = 60
-            self.combo_banner_text = f"x{multiplier} COMBO!"
+            self.combo_banner_text = f"x{combo_multiplier(self.combo_count)} COMBO!"
             self.sounds.play(self.sounds.combo)
 
         self.sounds.play(self.sounds.score)
         ox, oy = obstacle.get_pos()
         spawn_particles(self.particles, ox, oy, obstacle.color, count=8 + multiplier)
+
+    def absorb_hit(self, obstacle):
+        self.shield_charges -= 1
+        self.obstacles.remove(obstacle)
+        self.sounds.play(self.sounds.shield)
+        ox, oy = obstacle.get_pos()
+        spawn_particles(self.particles, ox, oy, CYAN, count=16)
+        px, py = self.player.get_pos()
+        spawn_particles(self.particles, px, py, CYAN, count=10)
 
     def end_game(self):
         if self.game_over:
@@ -307,10 +381,13 @@ class Game:
         px, py = self.player.get_pos()
         spawn_particles(self.particles, px, py, RED, count=18)
 
-        if self.player.score > self.high_score:
-            self.high_score = self.player.score
-            save_high_score(self.high_score)
-            self.new_high_score = True
+        self.new_high_score = record_game_end(
+            self.stats,
+            self.difficulty_key,
+            self.player.score,
+            self.level,
+            self.session_max_combo,
+        )
 
     def toggle_pause(self):
         if self.started and not self.game_over:
@@ -323,9 +400,25 @@ class Game:
                 pygame.quit()
                 sys.exit()
             if event.type == pygame.KEYDOWN:
-                if not self.started and event.key in (pygame.K_SPACE, pygame.K_RETURN):
-                    self.started = True
-                    self.demo_obstacles.clear()
+                if not self.started:
+                    if self.show_stats_screen and event.key in (pygame.K_TAB, pygame.K_ESCAPE):
+                        self.show_stats_screen = False
+                    elif self.show_stats_screen:
+                        pass
+                    elif event.key == pygame.K_TAB:
+                        self.show_stats_screen = True
+                    elif event.key == pygame.K_LEFT:
+                        self.difficulty_key = cycle_difficulty(self.difficulty_key, -1)
+                    elif event.key == pygame.K_RIGHT:
+                        self.difficulty_key = cycle_difficulty(self.difficulty_key, 1)
+                    elif event.key in (pygame.K_1, pygame.K_2, pygame.K_3):
+                        keys = ["easy", "normal", "hard"]
+                        index = event.key - pygame.K_1
+                        if index < len(keys):
+                            self.difficulty_key = keys[index]
+                    elif event.key in (pygame.K_SPACE, pygame.K_RETURN):
+                        self.started = True
+                        self.demo_obstacles.clear()
                 elif self.started and not self.game_over:
                     if event.key in (pygame.K_p, pygame.K_ESCAPE):
                         self.toggle_pause()
@@ -339,7 +432,14 @@ class Game:
                             self.player.move(1)
                 elif self.game_over and event.key == pygame.K_r:
                     self.reset()
-                    self.started = True
+
+    def update_effect_timers(self):
+        if self.slow_mo_timer > 0:
+            self.slow_mo_timer -= 1
+        if self.score_boost_timer > 0:
+            self.score_boost_timer -= 1
+        if self.powerup_banner_timer > 0:
+            self.powerup_banner_timer -= 1
 
     def update_particles_and_timers(self):
         for particle in self.particles[:]:
@@ -357,6 +457,7 @@ class Game:
             self.combo_banner_timer -= 1
 
         self.title_timer += 1
+        self.update_effect_timers()
 
     def update_title_demo(self):
         self.platform_angle = (self.platform_angle + 1.2) % 360
@@ -370,32 +471,57 @@ class Game:
             if obstacle.is_cleared():
                 self.demo_obstacles.remove(obstacle)
 
+    def update_powerups(self):
+        for powerup in self.powerups[:]:
+            powerup.update()
+            if powerup.expired():
+                self.powerups.remove(powerup)
+                continue
+
+            px, py = self.player.get_pos()
+            if powerup.collides_with_player(px, py, PLAYER_RADIUS):
+                self.collect_powerup(powerup)
+                self.powerups.remove(powerup)
+
     def update_gameplay(self):
         if self.combo_timer > 0:
             self.combo_timer -= 1
             if self.combo_timer == 0:
                 self.combo_count = 0
 
-        self.platform_angle = (self.platform_angle + self.rotation_speed) % 360
-        self.player.update(self.rotation_speed)
+        speed_multiplier = self.gameplay_speed_multiplier()
+        rotation_speed = self.rotation_speed * (0.5 if self.slow_mo_timer > 0 else 1.0)
+
+        self.platform_angle = (self.platform_angle + rotation_speed) % 360
+        self.player.update(rotation_speed)
 
         if self.player.just_landed():
             self.sounds.play(self.sounds.land)
 
         self.spawn_timer += 1
-        spawn_interval = max(20, 55 - self.level * 4)
+        spawn_interval = max(20, int((55 - self.level * 4) * self.difficulty["spawn_interval_mod"]))
         if self.spawn_timer >= spawn_interval:
             self.spawn_obstacle()
             self.spawn_timer = 0
 
+        self.powerup_spawn_timer += 1
+        if self.powerup_spawn_timer >= POWERUP_SPAWN_INTERVAL:
+            self.try_spawn_powerup()
+            self.powerup_spawn_timer = 0
+
+        self.update_powerups()
+
         for obstacle in self.obstacles[:]:
-            obstacle.update()
+            obstacle.update(speed_multiplier)
             if obstacle.is_cleared():
                 self.obstacles.remove(obstacle)
                 self.register_dodge(obstacle)
             elif check_collision(self.player, obstacle):
-                self.end_game()
-                return
+                if self.shield_charges > 0:
+                    self.absorb_hit(obstacle)
+                else:
+                    self.end_game()
+                    return
 
         if self.player.has_fallen():
             self.end_game()
@@ -404,7 +530,7 @@ class Game:
         next_level_threshold = self.level * 200
         if self.player.score >= next_level_threshold:
             self.level += 1
-            self.rotation_speed += 0.25
+            self.rotation_speed += self.difficulty["level_speed_gain"]
             self.level_banner_timer = 90
             self.sounds.play(self.sounds.level_up)
 
@@ -430,10 +556,8 @@ class Game:
 
     def title_color(self):
         pulse = (math.sin(self.title_timer * 0.08) + 1) / 2
-        red = int(200 + 55 * pulse)
-        green = int(160 + 60 * pulse)
-        blue = int(40 + 40 * (1 - pulse))
-        return red, green, blue
+        base = self.difficulty["color"]
+        return tuple(int(component * (0.75 + 0.25 * pulse)) for component in base)
 
     def title_bounce_y(self, base_y):
         return base_y + int(math.sin(self.title_timer * 0.1) * 8)
@@ -445,17 +569,30 @@ class Game:
         for obstacle in active_obstacles:
             obstacle.draw(self.screen)
 
+        for powerup in self.powerups:
+            powerup.draw(self.screen)
+
         if self.started:
-            self.player.draw(self.screen)
+            self.player.draw(self.screen, self.shield_charges)
 
         for particle in self.particles:
             particle.draw(self.screen)
 
     def draw_hud(self):
-        multiplier = combo_multiplier(self.combo_count) if self.combo_count > 0 else 1
-        combo_text = f"   Combo: x{multiplier}" if self.combo_count > 0 else ""
+        multiplier = self.score_multiplier() if self.combo_count > 0 or self.score_boost_timer > 0 else 1
+        extras = []
+        if self.combo_count > 0:
+            extras.append(f"Combo x{combo_multiplier(self.combo_count)}")
+        if self.score_boost_timer > 0:
+            extras.append("2x Boost")
+        if self.slow_mo_timer > 0:
+            extras.append("Slow-Mo")
+        if self.shield_charges > 0:
+            extras.append(f"Shield x{self.shield_charges}")
+
+        extra_text = f"   {' | '.join(extras)}" if extras else ""
         hud = self.font.render(
-            f"Score: {self.player.score}   Level: {self.level}   Best: {self.high_score}{combo_text}",
+            f"Score: {self.player.score}   Level: {self.level}   Best: {self.best_for_difficulty}{extra_text}",
             True,
             WHITE,
         )
@@ -481,6 +618,90 @@ class Game:
             HEIGHT // 2 + 30,
         )
 
+    def draw_stats_screen(self):
+        self.overlay.fill((0, 0, 0, 210))
+        self.screen.blit(self.overlay, (0, 0))
+        draw_centered_text(self.screen, self.title_font, "STATS", YELLOW, 70)
+
+        lines = [
+            f"Games Played: {self.stats['games_played']}",
+            f"Best Combo: {self.stats['best_combo']}",
+            "",
+            "High Scores",
+            f"  Easy:   {get_high_score(self.stats, 'easy')}",
+            f"  Normal: {get_high_score(self.stats, 'normal')}",
+            f"  Hard:   {get_high_score(self.stats, 'hard')}",
+            "",
+            "Top Runs",
+        ]
+
+        recent_runs = self.stats.get("recent_runs", [])
+        if recent_runs:
+            for index, run in enumerate(recent_runs, start=1):
+                difficulty_name = DIFFICULTIES[run["difficulty"]]["name"]
+                lines.append(
+                    f"  {index}. {run['score']} pts ({difficulty_name}, Lv {run['level']})"
+                )
+        else:
+            lines.append("  No runs yet")
+
+        y = 130
+        for line in lines:
+            if line:
+                text = self.small_font.render(line, True, WHITE)
+                rect = text.get_rect(center=(WIDTH // 2, y))
+                self.screen.blit(text, rect)
+            y += 30
+
+        draw_centered_text(
+            self.screen,
+            self.small_font,
+            "Press TAB or ESC to Close",
+            CYAN,
+            HEIGHT - 40,
+        )
+
+    def draw_title_screen(self):
+        draw_centered_text(
+            self.screen,
+            self.title_font,
+            "SpinJump Dodger",
+            self.title_color(),
+            self.title_bounce_y(HEIGHT // 2 - 110),
+        )
+        draw_centered_text(
+            self.screen,
+            self.font,
+            "Press SPACE to Start",
+            WHITE,
+            HEIGHT // 2 - 30,
+        )
+
+        diff_color = self.difficulty["color"]
+        draw_centered_text(
+            self.screen,
+            self.font,
+            f"Difficulty: {self.difficulty['name']}",
+            diff_color,
+            HEIGHT // 2 + 15,
+        )
+        draw_centered_text(
+            self.screen,
+            self.small_font,
+            "LEFT/RIGHT or 1-3 to change   TAB for stats",
+            WHITE,
+            HEIGHT // 2 + 55,
+        )
+        draw_centered_text(
+            self.screen,
+            self.small_font,
+            f"Best ({self.difficulty['name']}): {self.best_for_difficulty}",
+            CYAN,
+            HEIGHT // 2 + 90,
+        )
+        self._draw_obstacle_legend(HEIGHT // 2 + 130)
+        self._draw_powerup_legend(HEIGHT // 2 + 175)
+
     def draw(self):
         self.screen.fill(BLACK)
         shake = self.shake_offset()
@@ -488,28 +709,9 @@ class Game:
         self.draw_hud()
 
         if not self.started:
-            draw_centered_text(
-                self.screen,
-                self.title_font,
-                "SpinJump Dodger",
-                self.title_color(),
-                self.title_bounce_y(HEIGHT // 2 - 80),
-            )
-            draw_centered_text(
-                self.screen,
-                self.font,
-                "Press SPACE to Start",
-                WHITE,
-                HEIGHT // 2,
-            )
-            draw_centered_text(
-                self.screen,
-                self.small_font,
-                f"High Score: {self.high_score}",
-                CYAN,
-                HEIGHT // 2 + 45,
-            )
-            self._draw_obstacle_legend()
+            self.draw_title_screen()
+            if self.show_stats_screen:
+                self.draw_stats_screen()
         elif self.game_over:
             draw_centered_text(self.screen, self.title_font, "GAME OVER", RED, HEIGHT // 2 - 50, shake)
             draw_centered_text(
@@ -524,7 +726,7 @@ class Game:
                 draw_centered_text(
                     self.screen,
                     self.small_font,
-                    "NEW HIGH SCORE!",
+                    f"NEW {self.difficulty['name'].upper()} HIGH SCORE!",
                     YELLOW,
                     HEIGHT // 2 + 40,
                     shake,
@@ -555,13 +757,21 @@ class Game:
                 HEIGHT // 2 + 50,
             )
 
+        if self.powerup_banner_timer > 0 and self.started and not self.game_over:
+            draw_centered_text(
+                self.screen,
+                self.small_font,
+                self.powerup_banner_text,
+                YELLOW,
+                HEIGHT // 2 + 85,
+            )
+
         if self.paused:
             self.draw_pause_overlay()
 
         pygame.display.flip()
 
-    def _draw_obstacle_legend(self):
-        legend_y = HEIGHT // 2 + 95
+    def _draw_obstacle_legend(self, legend_y):
         entries = [
             (RED, "Red: standard"),
             (ORANGE, "Orange: fast"),
@@ -570,6 +780,18 @@ class Game:
         for index, (color, label) in enumerate(entries):
             x = WIDTH // 2 - 150 + index * 155
             pygame.draw.circle(self.screen, color, (x, legend_y), 8)
+            text = self.small_font.render(label, True, WHITE)
+            self.screen.blit(text, (x + 14, legend_y - 10))
+
+    def _draw_powerup_legend(self, legend_y):
+        entries = [
+            (POWERUP_TYPES["shield"]["color"], "Shield"),
+            (POWERUP_TYPES["slow"]["color"], "Slow-Mo"),
+            (POWERUP_TYPES["boost"]["color"], "2x Score"),
+        ]
+        for index, (color, label) in enumerate(entries):
+            x = WIDTH // 2 - 150 + index * 155
+            pygame.draw.circle(self.screen, color, (x, legend_y), 7)
             text = self.small_font.render(label, True, WHITE)
             self.screen.blit(text, (x + 14, legend_y - 10))
 

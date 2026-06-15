@@ -32,6 +32,8 @@ class SoundManager:
             self.level_up = _make_tone(620, 140, volume=0.22)
             self.combo = _make_tone(880, 80, volume=0.2)
             self.pause = _make_tone(400, 50, volume=0.12)
+            self.powerup = _make_tone(980, 110, volume=0.22)
+            self.shield = _make_tone(540, 120, volume=0.18)
             self.game_over = _make_tone(180, 320, volume=0.28, fade=False)
         except pygame.error:
             self.enabled = False
