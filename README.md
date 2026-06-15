@@ -5,10 +5,16 @@ A fun arcade-style dodging game built with Pygame for Stanford's Code in Place f
 ## Features
 
 - Central spinning platform with animated markers
-- Jump to dodge incoming red obstacles
+- Jump to dodge incoming obstacles
+- Three obstacle types:
+  - **Red** — standard speed (10 pts)
+  - **Orange** — faster and smaller (15 pts)
+  - **Purple** — zigzag path (20 pts, appears from level 3)
 - Increasing speed and difficulty per level
 - Simple physics: gravity when jumping and falling
-- Score and level system
+- Score, level, and persistent high score
+- Procedural sound effects (jump, land, score, level up, game over)
+- Particle bursts when dodging or crashing
 - Retro feel with basic shapes
 
 ## Controls

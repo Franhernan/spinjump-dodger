@@ -1,4 +1,5 @@
 __pycache__/
+highscore.json
 *.py[cod]
 *.egg-info/
 .venv/

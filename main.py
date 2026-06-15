@@ -4,6 +4,9 @@ import sys
 
 import pygame
 
+from highscore import load_high_score, save_high_score
+from sounds import SoundManager
+
 pygame.init()
 
 WIDTH, HEIGHT = 800, 600
@@ -13,14 +16,16 @@ FPS = 60
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
 RED = (255, 60, 60)
+ORANGE = (255, 140, 40)
+PURPLE = (180, 80, 255)
 BLUE = (60, 140, 255)
 GREEN = (40, 200, 90)
 YELLOW = (255, 220, 80)
 DARK_GREEN = (20, 120, 50)
+CYAN = (80, 220, 255)
 
 PLATFORM_RADIUS = 130
 PLAYER_RADIUS = 18
-OBSTACLE_RADIUS = 14
 PLAYER_ORBIT_RADIUS = 118
 OBSTACLE_SPAWN_RADIUS = 320
 OBSTACLE_DESPAWN_RADIUS = 40
@@ -30,6 +35,31 @@ JUMP_VELOCITY = -11
 MOVE_SPEED = 4.5
 MAX_FALL_RADIUS = 230
 
+OBSTACLE_TYPES = ("normal", "fast", "zigzag")
+
+
+class Particle:
+    def __init__(self, x, y, color):
+        angle = random.uniform(0, math.tau)
+        speed = random.uniform(1.5, 4.5)
+        self.x = x
+        self.y = y
+        self.vx = math.cos(angle) * speed
+        self.vy = math.sin(angle) * speed
+        self.color = color
+        self.life = random.randint(18, 30)
+        self.radius = random.randint(2, 4)
+
+    def update(self):
+        self.x += self.vx
+        self.y += self.vy
+        self.vy += 0.08
+        self.life -= 1
+
+    def draw(self, surface):
+        if self.life > 0:
+            pygame.draw.circle(surface, self.color, (int(self.x), int(self.y)), self.radius)
+
 
 class Player:
     def __init__(self):
@@ -38,8 +68,11 @@ class Player:
         self.radial_velocity = 0.0
         self.on_platform = True
         self.score = 0
+        self.was_on_platform = True
 
     def update(self, rotation_speed):
+        self.was_on_platform = self.on_platform
+
         if self.on_platform:
             self.angle = (self.angle + rotation_speed) % 360
             self.radius = PLAYER_ORBIT_RADIUS
@@ -56,6 +89,11 @@ class Player:
         if self.on_platform:
             self.on_platform = False
             self.radial_velocity = JUMP_VELOCITY
+            return True
+        return False
+
+    def just_landed(self):
+        return self.on_platform and not self.was_on_platform
 
     def move(self, direction):
         if self.on_platform:
@@ -79,6 +117,11 @@ class Player:
 
 
 class Obstacle:
+    kind = "normal"
+    color = RED
+    radius = 14
+    points = 10
+
     def __init__(self, angle, speed):
         self.angle = angle
         self.radius = OBSTACLE_SPAWN_RADIUS
@@ -87,26 +130,77 @@ class Obstacle:
     def update(self):
         self.radius -= self.speed
 
+    def effective_angle(self):
+        return self.angle
+
     def get_pos(self):
-        radians = math.radians(self.angle)
+        radians = math.radians(self.effective_angle())
         x = CENTER_X + self.radius * math.cos(radians)
         y = CENTER_Y + self.radius * math.sin(radians)
         return x, y
 
     def draw(self, surface):
         x, y = self.get_pos()
-        pygame.draw.circle(surface, RED, (int(x), int(y)), OBSTACLE_RADIUS)
+        pygame.draw.circle(surface, self.color, (int(x), int(y)), self.radius)
 
     def is_cleared(self):
         return self.radius < OBSTACLE_DESPAWN_RADIUS
+
+
+class FastObstacle(Obstacle):
+    kind = "fast"
+    color = ORANGE
+    radius = 10
+    points = 15
+
+    def __init__(self, angle, speed):
+        super().__init__(angle, speed * 1.45)
+
+
+class ZigzagObstacle(Obstacle):
+    kind = "zigzag"
+    color = PURPLE
+    radius = 13
+    points = 20
+
+    def __init__(self, angle, speed):
+        super().__init__(angle, speed)
+        self.wobble_speed = random.uniform(3.0, 6.0)
+        self.wobble_amount = random.uniform(8.0, 15.0)
+        self.time = 0.0
+
+    def update(self):
+        super().update()
+        self.time += 1.0
+
+    def effective_angle(self):
+        wobble = self.wobble_amount * math.sin(math.radians(self.time * self.wobble_speed))
+        return self.angle + wobble
+
+    def draw(self, surface):
+        x, y = self.get_pos()
+        pygame.draw.circle(surface, self.color, (int(x), int(y)), self.radius)
+        pygame.draw.circle(surface, WHITE, (int(x), int(y)), self.radius, 2)
+
+
+def create_obstacle(level):
+    angle = random.uniform(0, 360)
+    speed = 2.5 + level * 0.45
+
+    roll = random.random()
+    if level >= 3 and roll < 0.2:
+        return ZigzagObstacle(angle, speed)
+    if level >= 2 and roll < 0.45:
+        return FastObstacle(angle, speed)
+    return Obstacle(angle, speed)
 
 
 def draw_platform(surface, rotation_angle):
     pygame.draw.circle(surface, DARK_GREEN, (CENTER_X, CENTER_Y), PLATFORM_RADIUS + 8)
     pygame.draw.circle(surface, GREEN, (CENTER_X, CENTER_Y), PLATFORM_RADIUS, 18)
 
-    for i in range(8):
-        marker_angle = math.radians(rotation_angle + i * 45)
+    for index in range(8):
+        marker_angle = math.radians(rotation_angle + index * 45)
         inner = PLATFORM_RADIUS - 12
         outer = PLATFORM_RADIUS + 12
         x1 = CENTER_X + inner * math.cos(marker_angle)
@@ -120,13 +214,18 @@ def check_collision(player, obstacle):
     px, py = player.get_pos()
     ox, oy = obstacle.get_pos()
     distance = math.hypot(px - ox, py - oy)
-    return distance < PLAYER_RADIUS + OBSTACLE_RADIUS
+    return distance < PLAYER_RADIUS + obstacle.radius
 
 
-def draw_centered_text(surface, font, text, color, y):
+def draw_centered_text(surface, font, text, color, y, shake_x=0):
     rendered = font.render(text, True, color)
-    rect = rendered.get_rect(center=(WIDTH // 2, y))
+    rect = rendered.get_rect(center=(WIDTH // 2 + shake_x, y))
     surface.blit(rendered, rect)
+
+
+def spawn_particles(particles, x, y, color, count=10):
+    for _ in range(count):
+        particles.append(Particle(x, y, color))
 
 
 class Game:
@@ -137,22 +236,42 @@ class Game:
         self.title_font = pygame.font.SysFont(None, 64)
         self.font = pygame.font.SysFont(None, 36)
         self.small_font = pygame.font.SysFont(None, 28)
+        self.sounds = SoundManager()
+        self.high_score = load_high_score()
         self.reset()
 
     def reset(self):
         self.player = Player()
         self.obstacles = []
+        self.particles = []
         self.rotation_speed = 1.8
         self.platform_angle = 0.0
         self.level = 1
         self.spawn_timer = 0
         self.game_over = False
         self.started = False
+        self.level_banner_timer = 0
+        self.death_shake_timer = 0
+        self.new_high_score = False
 
     def spawn_obstacle(self):
-        angle = random.uniform(0, 360)
-        speed = 2.5 + self.level * 0.45
-        self.obstacles.append(Obstacle(angle, speed))
+        self.obstacles.append(create_obstacle(self.level))
+
+    def end_game(self):
+        if self.game_over:
+            return
+
+        self.game_over = True
+        self.death_shake_timer = 24
+        self.sounds.play(self.sounds.game_over)
+
+        px, py = self.player.get_pos()
+        spawn_particles(self.particles, px, py, RED, count=18)
+
+        if self.player.score > self.high_score:
+            self.high_score = self.player.score
+            save_high_score(self.high_score)
+            self.new_high_score = True
 
     def handle_input(self):
         for event in pygame.event.get():
@@ -162,27 +281,38 @@ class Game:
             if event.type == pygame.KEYDOWN:
                 if not self.started and event.key in (pygame.K_SPACE, pygame.K_RETURN):
                     self.started = True
+                elif self.started and not self.game_over:
+                    if event.key in (pygame.K_SPACE, pygame.K_UP):
+                        if self.player.jump():
+                            self.sounds.play(self.sounds.jump)
+                    elif event.key == pygame.K_LEFT:
+                        self.player.move(-1)
+                    elif event.key == pygame.K_RIGHT:
+                        self.player.move(1)
                 elif self.game_over and event.key == pygame.K_r:
                     self.reset()
                     self.started = True
 
-        if not self.started or self.game_over:
-            return
-
-        keys = pygame.key.get_pressed()
-        if keys[pygame.K_SPACE] or keys[pygame.K_UP]:
-            self.player.jump()
-        if keys[pygame.K_LEFT]:
-            self.player.move(-1)
-        if keys[pygame.K_RIGHT]:
-            self.player.move(1)
-
     def update(self):
+        for particle in self.particles[:]:
+            particle.update()
+            if particle.life <= 0:
+                self.particles.remove(particle)
+
+        if self.level_banner_timer > 0:
+            self.level_banner_timer -= 1
+
+        if self.death_shake_timer > 0:
+            self.death_shake_timer -= 1
+
         if not self.started or self.game_over:
             return
 
         self.platform_angle = (self.platform_angle + self.rotation_speed) % 360
         self.player.update(self.rotation_speed)
+
+        if self.player.just_landed():
+            self.sounds.play(self.sounds.land)
 
         self.spawn_timer += 1
         spawn_interval = max(20, 55 - self.level * 4)
@@ -194,20 +324,33 @@ class Game:
             obstacle.update()
             if obstacle.is_cleared():
                 self.obstacles.remove(obstacle)
-                self.player.score += 10
+                self.player.score += obstacle.points
+                self.sounds.play(self.sounds.score)
+                ox, oy = obstacle.get_pos()
+                spawn_particles(self.particles, ox, oy, obstacle.color, count=8)
             elif check_collision(self.player, obstacle):
-                self.game_over = True
+                self.end_game()
+                return
 
         if self.player.has_fallen():
-            self.game_over = True
+            self.end_game()
+            return
 
         next_level_threshold = self.level * 200
         if self.player.score >= next_level_threshold:
             self.level += 1
             self.rotation_speed += 0.25
+            self.level_banner_timer = 90
+            self.sounds.play(self.sounds.level_up)
+
+    def shake_offset(self):
+        if self.death_shake_timer <= 0:
+            return 0
+        return random.randint(-4, 4)
 
     def draw(self):
         self.screen.fill(BLACK)
+        shake = self.shake_offset()
         draw_platform(self.screen, self.platform_angle)
 
         for obstacle in self.obstacles:
@@ -215,8 +358,11 @@ class Game:
 
         self.player.draw(self.screen)
 
+        for particle in self.particles:
+            particle.draw(self.screen)
+
         hud = self.font.render(
-            f"Score: {self.player.score}   Level: {self.level}",
+            f"Score: {self.player.score}   Level: {self.level}   Best: {self.high_score}",
             True,
             WHITE,
         )
@@ -230,32 +376,72 @@ class Game:
         self.screen.blit(controls, (12, HEIGHT - 34))
 
         if not self.started:
-            draw_centered_text(self.screen, self.title_font, "SpinJump Dodger", YELLOW, HEIGHT // 2 - 60)
+            draw_centered_text(self.screen, self.title_font, "SpinJump Dodger", YELLOW, HEIGHT // 2 - 80)
             draw_centered_text(
                 self.screen,
                 self.font,
                 "Press SPACE to Start",
                 WHITE,
-                HEIGHT // 2 + 10,
+                HEIGHT // 2,
             )
+            draw_centered_text(
+                self.screen,
+                self.small_font,
+                f"High Score: {self.high_score}",
+                CYAN,
+                HEIGHT // 2 + 45,
+            )
+            self._draw_obstacle_legend()
         elif self.game_over:
-            draw_centered_text(self.screen, self.title_font, "GAME OVER", RED, HEIGHT // 2 - 30)
+            draw_centered_text(self.screen, self.title_font, "GAME OVER", RED, HEIGHT // 2 - 50, shake)
             draw_centered_text(
                 self.screen,
                 self.font,
                 f"Final Score: {self.player.score}",
                 WHITE,
-                HEIGHT // 2 + 20,
+                HEIGHT // 2,
+                shake,
             )
+            if self.new_high_score:
+                draw_centered_text(
+                    self.screen,
+                    self.small_font,
+                    "NEW HIGH SCORE!",
+                    YELLOW,
+                    HEIGHT // 2 + 40,
+                    shake,
+                )
             draw_centered_text(
                 self.screen,
                 self.small_font,
                 "Press R to Restart",
                 WHITE,
-                HEIGHT // 2 + 60,
+                HEIGHT // 2 + 80,
+                shake,
+            )
+        elif self.level_banner_timer > 0:
+            draw_centered_text(
+                self.screen,
+                self.title_font,
+                f"LEVEL {self.level}!",
+                YELLOW,
+                HEIGHT // 2 - 20,
             )
 
         pygame.display.flip()
+
+    def _draw_obstacle_legend(self):
+        legend_y = HEIGHT // 2 + 95
+        entries = [
+            (RED, "Red: standard"),
+            (ORANGE, "Orange: fast"),
+            (PURPLE, "Purple: zigzag"),
+        ]
+        for index, (color, label) in enumerate(entries):
+            x = WIDTH // 2 - 150 + index * 155
+            pygame.draw.circle(self.screen, color, (x, legend_y), 8)
+            text = self.small_font.render(label, True, WHITE)
+            self.screen.blit(text, (x + 14, legend_y - 10))
 
     def run(self):
         while True:
