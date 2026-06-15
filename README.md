@@ -15,12 +15,16 @@ A fun arcade-style dodging game built with Pygame for Stanford's Code in Place f
 - Score, level, and persistent high score
 - Procedural sound effects (jump, land, score, level up, game over)
 - Particle bursts when dodging or crashing
+- Combo multiplier for consecutive dodges within 2 seconds (up to x5)
+- Animated title screen with demo obstacles
+- Pause menu
 - Retro feel with basic shapes
 
 ## Controls
 
 - **SPACE or UP**: Jump
 - **LEFT / RIGHT arrows**: Move left/right on the platform
+- **P or ESC**: Pause / resume during gameplay
 - **R**: Restart after game over
 
 ## How to Run

@@ -30,6 +30,8 @@ class SoundManager:
             self.land = _make_tone(280, 70, volume=0.15)
             self.score = _make_tone(760, 60, volume=0.18)
             self.level_up = _make_tone(620, 140, volume=0.22)
+            self.combo = _make_tone(880, 80, volume=0.2)
+            self.pause = _make_tone(400, 50, volume=0.12)
             self.game_over = _make_tone(180, 320, volume=0.28, fade=False)
         except pygame.error:
             self.enabled = False

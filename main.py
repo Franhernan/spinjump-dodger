@@ -23,6 +23,7 @@ GREEN = (40, 200, 90)
 YELLOW = (255, 220, 80)
 DARK_GREEN = (20, 120, 50)
 CYAN = (80, 220, 255)
+OVERLAY = (0, 0, 0, 170)
 
 PLATFORM_RADIUS = 130
 PLAYER_RADIUS = 18
@@ -34,8 +35,8 @@ GRAVITY = 0.55
 JUMP_VELOCITY = -11
 MOVE_SPEED = 4.5
 MAX_FALL_RADIUS = 230
-
-OBSTACLE_TYPES = ("normal", "fast", "zigzag")
+COMBO_WINDOW = 120
+MAX_COMBO_MULTIPLIER = 5
 
 
 class Particle:
@@ -228,6 +229,10 @@ def spawn_particles(particles, x, y, color, count=10):
         particles.append(Particle(x, y, color))
 
 
+def combo_multiplier(combo_count):
+    return min(MAX_COMBO_MULTIPLIER, 1 + combo_count // 3)
+
+
 class Game:
     def __init__(self):
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
@@ -238,24 +243,56 @@ class Game:
         self.small_font = pygame.font.SysFont(None, 28)
         self.sounds = SoundManager()
         self.high_score = load_high_score()
+        self.overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
         self.reset()
 
     def reset(self):
         self.player = Player()
         self.obstacles = []
+        self.demo_obstacles = []
         self.particles = []
         self.rotation_speed = 1.8
         self.platform_angle = 0.0
         self.level = 1
         self.spawn_timer = 0
+        self.demo_spawn_timer = 0
         self.game_over = False
         self.started = False
+        self.paused = False
         self.level_banner_timer = 0
         self.death_shake_timer = 0
         self.new_high_score = False
+        self.title_timer = 0
+        self.combo_count = 0
+        self.combo_timer = 0
+        self.combo_banner_timer = 0
+        self.combo_banner_text = ""
 
     def spawn_obstacle(self):
         self.obstacles.append(create_obstacle(self.level))
+
+    def spawn_demo_obstacle(self):
+        angle = random.uniform(0, 360)
+        speed = random.uniform(2.0, 3.5)
+        choices = [Obstacle, FastObstacle, ZigzagObstacle]
+        obstacle_class = random.choice(choices)
+        self.demo_obstacles.append(obstacle_class(angle, speed))
+
+    def register_dodge(self, obstacle):
+        self.combo_count += 1
+        self.combo_timer = COMBO_WINDOW
+        multiplier = combo_multiplier(self.combo_count)
+        points = obstacle.points * multiplier
+        self.player.score += points
+
+        if self.combo_count % 3 == 0:
+            self.combo_banner_timer = 60
+            self.combo_banner_text = f"x{multiplier} COMBO!"
+            self.sounds.play(self.sounds.combo)
+
+        self.sounds.play(self.sounds.score)
+        ox, oy = obstacle.get_pos()
+        spawn_particles(self.particles, ox, oy, obstacle.color, count=8 + multiplier)
 
     def end_game(self):
         if self.game_over:
@@ -263,6 +300,8 @@ class Game:
 
         self.game_over = True
         self.death_shake_timer = 24
+        self.combo_count = 0
+        self.combo_timer = 0
         self.sounds.play(self.sounds.game_over)
 
         px, py = self.player.get_pos()
@@ -273,6 +312,11 @@ class Game:
             save_high_score(self.high_score)
             self.new_high_score = True
 
+    def toggle_pause(self):
+        if self.started and not self.game_over:
+            self.paused = not self.paused
+            self.sounds.play(self.sounds.pause)
+
     def handle_input(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -281,19 +325,23 @@ class Game:
             if event.type == pygame.KEYDOWN:
                 if not self.started and event.key in (pygame.K_SPACE, pygame.K_RETURN):
                     self.started = True
+                    self.demo_obstacles.clear()
                 elif self.started and not self.game_over:
-                    if event.key in (pygame.K_SPACE, pygame.K_UP):
-                        if self.player.jump():
-                            self.sounds.play(self.sounds.jump)
-                    elif event.key == pygame.K_LEFT:
-                        self.player.move(-1)
-                    elif event.key == pygame.K_RIGHT:
-                        self.player.move(1)
+                    if event.key in (pygame.K_p, pygame.K_ESCAPE):
+                        self.toggle_pause()
+                    elif not self.paused:
+                        if event.key in (pygame.K_SPACE, pygame.K_UP):
+                            if self.player.jump():
+                                self.sounds.play(self.sounds.jump)
+                        elif event.key == pygame.K_LEFT:
+                            self.player.move(-1)
+                        elif event.key == pygame.K_RIGHT:
+                            self.player.move(1)
                 elif self.game_over and event.key == pygame.K_r:
                     self.reset()
                     self.started = True
 
-    def update(self):
+    def update_particles_and_timers(self):
         for particle in self.particles[:]:
             particle.update()
             if particle.life <= 0:
@@ -305,8 +353,28 @@ class Game:
         if self.death_shake_timer > 0:
             self.death_shake_timer -= 1
 
-        if not self.started or self.game_over:
-            return
+        if self.combo_banner_timer > 0:
+            self.combo_banner_timer -= 1
+
+        self.title_timer += 1
+
+    def update_title_demo(self):
+        self.platform_angle = (self.platform_angle + 1.2) % 360
+        self.demo_spawn_timer += 1
+        if self.demo_spawn_timer >= 45:
+            self.spawn_demo_obstacle()
+            self.demo_spawn_timer = 0
+
+        for obstacle in self.demo_obstacles[:]:
+            obstacle.update()
+            if obstacle.is_cleared():
+                self.demo_obstacles.remove(obstacle)
+
+    def update_gameplay(self):
+        if self.combo_timer > 0:
+            self.combo_timer -= 1
+            if self.combo_timer == 0:
+                self.combo_count = 0
 
         self.platform_angle = (self.platform_angle + self.rotation_speed) % 360
         self.player.update(self.rotation_speed)
@@ -324,10 +392,7 @@ class Game:
             obstacle.update()
             if obstacle.is_cleared():
                 self.obstacles.remove(obstacle)
-                self.player.score += obstacle.points
-                self.sounds.play(self.sounds.score)
-                ox, oy = obstacle.get_pos()
-                spawn_particles(self.particles, ox, oy, obstacle.color, count=8)
+                self.register_dodge(obstacle)
             elif check_collision(self.player, obstacle):
                 self.end_game()
                 return
@@ -343,40 +408,93 @@ class Game:
             self.level_banner_timer = 90
             self.sounds.play(self.sounds.level_up)
 
+    def update(self):
+        self.update_particles_and_timers()
+
+        if self.game_over:
+            return
+
+        if not self.started:
+            self.update_title_demo()
+            return
+
+        if self.paused:
+            return
+
+        self.update_gameplay()
+
     def shake_offset(self):
         if self.death_shake_timer <= 0:
             return 0
         return random.randint(-4, 4)
 
-    def draw(self):
-        self.screen.fill(BLACK)
-        shake = self.shake_offset()
+    def title_color(self):
+        pulse = (math.sin(self.title_timer * 0.08) + 1) / 2
+        red = int(200 + 55 * pulse)
+        green = int(160 + 60 * pulse)
+        blue = int(40 + 40 * (1 - pulse))
+        return red, green, blue
+
+    def title_bounce_y(self, base_y):
+        return base_y + int(math.sin(self.title_timer * 0.1) * 8)
+
+    def draw_world(self):
         draw_platform(self.screen, self.platform_angle)
 
-        for obstacle in self.obstacles:
+        active_obstacles = self.demo_obstacles if not self.started else self.obstacles
+        for obstacle in active_obstacles:
             obstacle.draw(self.screen)
 
-        self.player.draw(self.screen)
+        if self.started:
+            self.player.draw(self.screen)
 
         for particle in self.particles:
             particle.draw(self.screen)
 
+    def draw_hud(self):
+        multiplier = combo_multiplier(self.combo_count) if self.combo_count > 0 else 1
+        combo_text = f"   Combo: x{multiplier}" if self.combo_count > 0 else ""
         hud = self.font.render(
-            f"Score: {self.player.score}   Level: {self.level}   Best: {self.high_score}",
+            f"Score: {self.player.score}   Level: {self.level}   Best: {self.high_score}{combo_text}",
             True,
             WHITE,
         )
         self.screen.blit(hud, (12, 12))
 
-        controls = self.small_font.render(
-            "SPACE/UP: Jump   LEFT/RIGHT: Move",
-            True,
-            WHITE,
+        if self.started and not self.game_over:
+            controls = self.small_font.render(
+                "SPACE/UP: Jump   LEFT/RIGHT: Move   P: Pause",
+                True,
+                WHITE,
+            )
+            self.screen.blit(controls, (12, HEIGHT - 34))
+
+    def draw_pause_overlay(self):
+        self.overlay.fill(OVERLAY)
+        self.screen.blit(self.overlay, (0, 0))
+        draw_centered_text(self.screen, self.title_font, "PAUSED", WHITE, HEIGHT // 2 - 20)
+        draw_centered_text(
+            self.screen,
+            self.small_font,
+            "Press P or ESC to Resume",
+            CYAN,
+            HEIGHT // 2 + 30,
         )
-        self.screen.blit(controls, (12, HEIGHT - 34))
+
+    def draw(self):
+        self.screen.fill(BLACK)
+        shake = self.shake_offset()
+        self.draw_world()
+        self.draw_hud()
 
         if not self.started:
-            draw_centered_text(self.screen, self.title_font, "SpinJump Dodger", YELLOW, HEIGHT // 2 - 80)
+            draw_centered_text(
+                self.screen,
+                self.title_font,
+                "SpinJump Dodger",
+                self.title_color(),
+                self.title_bounce_y(HEIGHT // 2 - 80),
+            )
             draw_centered_text(
                 self.screen,
                 self.font,
@@ -427,6 +545,18 @@ class Game:
                 YELLOW,
                 HEIGHT // 2 - 20,
             )
+
+        if self.combo_banner_timer > 0 and self.started and not self.game_over:
+            draw_centered_text(
+                self.screen,
+                self.font,
+                self.combo_banner_text,
+                CYAN,
+                HEIGHT // 2 + 50,
+            )
+
+        if self.paused:
+            self.draw_pause_overlay()
 
         pygame.display.flip()
 
