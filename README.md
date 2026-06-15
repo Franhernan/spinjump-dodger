@@ -34,7 +34,7 @@ A fun arcade-style dodging game built with Pygame for Stanford's Code in Place f
 - **ESC**: Close stats screen
 
 ### Gameplay
-- **SPACE or UP**: Jump
+- **SPACE or UP**: Jump outward over incoming obstacles
 - **LEFT / RIGHT arrows**: Move left/right on the platform
 - **P or ESC**: Pause / resume
 - **R**: Restart after game over

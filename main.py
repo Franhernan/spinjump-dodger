@@ -33,10 +33,10 @@ PLAYER_ORBIT_RADIUS = 118
 OBSTACLE_SPAWN_RADIUS = 320
 OBSTACLE_DESPAWN_RADIUS = 40
 
-GRAVITY = 0.55
-JUMP_VELOCITY = -11
+GRAVITY = 0.48
+JUMP_VELOCITY = 10
 MOVE_SPEED = 4.5
-MAX_FALL_RADIUS = 230
+MAX_FALL_RADIUS = 205
 COMBO_WINDOW = 120
 MAX_COMBO_MULTIPLIER = 5
 MAX_SHIELD_CHARGES = 2
@@ -83,9 +83,9 @@ class Player:
             self.radius = PLAYER_ORBIT_RADIUS
             self.radial_velocity = 0.0
         else:
-            self.radial_velocity += GRAVITY
+            self.radial_velocity -= GRAVITY
             self.radius += self.radial_velocity
-            if self.radius <= PLAYER_ORBIT_RADIUS:
+            if self.radius <= PLAYER_ORBIT_RADIUS and self.radial_velocity <= 0:
                 self.radius = PLAYER_ORBIT_RADIUS
                 self.radial_velocity = 0.0
                 self.on_platform = True
@@ -112,6 +112,11 @@ class Player:
 
     def draw(self, surface, shield_charges=0):
         x, y = self.get_pos()
+        if not self.on_platform:
+            shadow_radians = math.radians(self.angle)
+            shadow_x = CENTER_X + PLAYER_ORBIT_RADIUS * math.cos(shadow_radians)
+            shadow_y = CENTER_Y + PLAYER_ORBIT_RADIUS * math.sin(shadow_radians)
+            pygame.draw.circle(surface, (30, 30, 30), (int(shadow_x), int(shadow_y)), 10)
         if shield_charges > 0:
             pygame.draw.circle(surface, CYAN, (int(x), int(y)), PLAYER_RADIUS + 8, 2)
         pygame.draw.circle(surface, BLUE, (int(x), int(y)), PLAYER_RADIUS)
@@ -600,7 +605,7 @@ class Game:
 
         if self.started and not self.game_over:
             controls = self.small_font.render(
-                "SPACE/UP: Jump   LEFT/RIGHT: Move   P: Pause",
+                "SPACE/UP: Jump outward   LEFT/RIGHT: Move   P: Pause",
                 True,
                 WHITE,
             )

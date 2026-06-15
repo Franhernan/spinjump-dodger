@@ -46,6 +46,20 @@ def test_stats():
     print("PASS: Stats load")
 
 
+def test_jump_clears_obstacle_height():
+    player = __import__("main").Player()
+    player.jump()
+    max_radius = player.radius
+
+    for _ in range(80):
+        player.update(0)
+        max_radius = max(max_radius, player.radius)
+
+    assert max_radius > 150, f"Jump too short, only reached radius {max_radius}"
+    assert player.on_platform, "Player should land back on the platform"
+    print(f"PASS: Jump reaches radius {max_radius}")
+
+
 def test_simulated_frames():
     pygame.init()
     pygame.display.set_mode((800, 600))
@@ -70,6 +84,7 @@ def main():
         test_obstacles_and_combos,
         test_powerups,
         test_stats,
+        test_jump_clears_obstacle_height,
         test_simulated_frames,
     ]
 
