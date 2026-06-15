@@ -11,6 +11,7 @@ A fun arcade-style dodging game built with Pygame for Stanford's Code in Place f
   - **Orange** — faster and smaller (15 pts)
   - **Purple** — zigzag path (20 pts, appears from level 3)
 - Three difficulty modes: **Easy**, **Normal**, **Hard**
+  - **Easy** uses only slow red standard balls
 - Collectible power-ups:
   - **Shield** — blocks one hit (stack up to 2)
   - **Slow-Mo** — slows obstacles and platform spin for 5 seconds

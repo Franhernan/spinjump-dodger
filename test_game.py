@@ -30,6 +30,10 @@ def test_obstacles_and_combos():
     assert level_one_speed < level_ten_speed
     assert level_ten_speed <= 3.8
     assert level_one_speed < 2.0
+
+    easy_obstacle = create_obstacle(level=10, speed_mod=0.72, standard_only=True)
+    assert easy_obstacle.kind == "normal"
+    assert type(easy_obstacle).__name__ == "Obstacle"
     print("PASS: Obstacles and combo math")
 
 

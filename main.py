@@ -197,9 +197,12 @@ class ZigzagObstacle(Obstacle):
         pygame.draw.circle(surface, WHITE, (int(x), int(y)), self.radius, 2)
 
 
-def create_obstacle(level, speed_mod):
+def create_obstacle(level, speed_mod, standard_only=False):
     angle = random.uniform(0, 360)
     speed = obstacle_speed_for_level(level, speed_mod)
+
+    if standard_only:
+        return Obstacle(angle, speed)
 
     roll = random.random()
     if level >= 3 and roll < 0.2:
@@ -309,13 +312,22 @@ class Game:
         return multiplier
 
     def spawn_obstacle(self):
-        self.obstacles.append(create_obstacle(self.level, self.difficulty["obstacle_speed_mod"]))
+        self.obstacles.append(
+            create_obstacle(
+                self.level,
+                self.difficulty["obstacle_speed_mod"],
+                self.difficulty.get("standard_obstacles_only", False),
+            )
+        )
 
     def spawn_demo_obstacle(self):
         angle = random.uniform(0, 360)
         speed = random.uniform(1.0, 1.8)
-        choices = [Obstacle, FastObstacle, ZigzagObstacle]
-        self.demo_obstacles.append(random.choice(choices)(angle, speed))
+        if self.difficulty.get("standard_obstacles_only", False):
+            self.demo_obstacles.append(Obstacle(angle, speed))
+        else:
+            choices = [Obstacle, FastObstacle, ZigzagObstacle]
+            self.demo_obstacles.append(random.choice(choices)(angle, speed))
 
     def try_spawn_powerup(self):
         if len(self.powerups) >= 1:
@@ -777,13 +789,19 @@ class Game:
         pygame.display.flip()
 
     def _draw_obstacle_legend(self, legend_y):
-        entries = [
-            (RED, "Red: standard"),
-            (ORANGE, "Orange: fast"),
-            (PURPLE, "Purple: zigzag"),
-        ]
+        if self.difficulty.get("standard_obstacles_only", False):
+            entries = [(RED, "Easy: slow red balls only")]
+        else:
+            entries = [
+                (RED, "Red: standard"),
+                (ORANGE, "Orange: fast"),
+                (PURPLE, "Purple: zigzag"),
+            ]
+
+        spacing = 220 if len(entries) == 1 else 155
+        start_x = WIDTH // 2 - ((len(entries) - 1) * spacing) // 2
         for index, (color, label) in enumerate(entries):
-            x = WIDTH // 2 - 150 + index * 155
+            x = start_x + index * spacing
             pygame.draw.circle(self.screen, color, (x, legend_y), 8)
             text = self.small_font.render(label, True, WHITE)
             self.screen.blit(text, (x + 14, legend_y - 10))

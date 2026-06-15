@@ -9,6 +9,7 @@ DIFFICULTIES = {
         "spawn_interval_mod": 1.4,
         "obstacle_speed_mod": 0.72,
         "level_speed_gain": 0.1,
+        "standard_obstacles_only": True,
         "color": (80, 220, 120),
     },
     "normal": {
@@ -17,6 +18,7 @@ DIFFICULTIES = {
         "spawn_interval_mod": 1.15,
         "obstacle_speed_mod": 0.88,
         "level_speed_gain": 0.14,
+        "standard_obstacles_only": False,
         "color": (80, 220, 255),
     },
     "hard": {
@@ -25,6 +27,7 @@ DIFFICULTIES = {
         "spawn_interval_mod": 0.9,
         "obstacle_speed_mod": 1.05,
         "level_speed_gain": 0.18,
+        "standard_obstacles_only": False,
         "color": (255, 90, 90),
     },
 }
