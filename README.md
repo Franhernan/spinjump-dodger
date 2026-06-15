@@ -5,19 +5,21 @@ A fun arcade-style dodging game built with Pygame for Stanford's Code in Place f
 ## Features
 
 - Central spinning platform with animated markers
-- Jump to dodge incoming obstacles
+- Jump outward to dodge incoming obstacles
 - Three obstacle types:
   - **Red** — standard speed (10 pts)
   - **Orange** — faster and smaller (15 pts)
   - **Purple** — zigzag path (20 pts, appears from level 3)
 - Three difficulty modes: **Easy**, **Normal**, **Hard**
-  - **Easy** uses only slow red standard balls
+  - **Easy** — only slow red balls, slower pacing, great for learning
+  - **Normal** — mixed obstacles with balanced challenge
+  - **Hard** — faster platform spin and tougher spawns
 - Collectible power-ups:
   - **Shield** — blocks one hit (stack up to 2)
   - **Slow-Mo** — slows obstacles and platform spin for 5 seconds
   - **2x Score** — doubles points for 8 seconds
-- Increasing speed and difficulty per level
-- Simple physics: gravity when jumping and falling
+- Gradual per-level speed scaling
+- Simple physics: gravity when jumping and landing back on the platform
 - Per-difficulty high scores and local stats leaderboard
 - Procedural sound effects
 - Particle bursts when dodging, collecting power-ups, or crashing
@@ -36,7 +38,7 @@ A fun arcade-style dodging game built with Pygame for Stanford's Code in Place f
 
 ### Gameplay
 - **SPACE or UP**: Jump outward over incoming obstacles
-- **LEFT / RIGHT arrows**: Move left/right on the platform
+- **Hold LEFT / RIGHT**: Move around the platform
 - **P or ESC**: Pause / resume
 - **R**: Restart after game over
 
@@ -52,6 +54,12 @@ A fun arcade-style dodging game built with Pygame for Stanford's Code in Place f
 
    ```bash
    python main.py
+   ```
+
+3. Optional smoke test:
+
+   ```bash
+   python test_game.py
    ```
 
 Enjoy spinning and jumping!
